@@ -18,7 +18,7 @@ const app = express();
 // middleware
 app.use(
   cors({
-    origin: [process.env.CLIENT_URL,process.env.CLIENT_URL2],
+    origin: [process.env.CLIENT_URL, process.env.CLIENT_URL2],
     credentials: true,
     optionSuccessStatus: 200,
   })
@@ -82,7 +82,7 @@ async function run() {
       res.send(result);
     });
     // get order from db
-    app.get("/orders/user/:email", async (req, res) => {
+    app.get("/my-orders/user/:email", async (req, res) => {
       const email = req.params.email;
 
       const result = await orderCollection.find({ userEmail: email }).toArray();
@@ -131,7 +131,6 @@ async function run() {
     app.patch("/payment-success", async (req, res) => {
       const sessionId = req.query.session_id;
 
-      
       const session = await stripe.checkout.sessions.retrieve(sessionId);
 
       // console.log("Retrieved Session:", session);
@@ -175,6 +174,13 @@ async function run() {
       }
 
       res.send({ success: false, message: "Payment not completed." });
+    });
+
+    // get meals by chef email
+    app.get("/meals/chef/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await mealsCollection.find({ userEmail: email }).toArray();
+      res.send(result);
     });
 
     // Send a ping to confirm a successful connection
