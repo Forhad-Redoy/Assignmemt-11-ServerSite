@@ -27,17 +27,28 @@ app.use(express.json());
 
 // jwt middlewares
 const verifyJWT = async (req, res, next) => {
-  const token = req?.headers?.authorization?.split(" ")[1];
-  console.log(token);
-  if (!token) return res.status(401).send({ message: "Unauthorized Access!" });
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(401).send({ message: "Unauthorized Access!" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).send({ message: "Unauthorized Access!" });
+  }
+
   try {
     const decoded = await admin.auth().verifyIdToken(token);
-    req.tokenEmail = decoded.email;
-    console.log(decoded);
+
+    req.tokenEmail = decoded.email; // use later for role check
+    req.decoded = decoded; // optional but useful
+
     next();
   } catch (err) {
-    console.log(err);
-    return res.status(401).send({ message: "Unauthorized Access!", err });
+    console.error("JWT Error:", err.message);
+    return res.status(401).send({ message: "Unauthorized Access!" });
   }
 };
 
@@ -67,20 +78,20 @@ async function run() {
     // const { ObjectId } = require("mongodb");
 
     // Save all meals in db
-    app.post("/meals",verifyJWT, async (req, res) => {
+    app.post("/meals", verifyJWT, async (req, res) => {
       const meal = req.body;
       const result = await mealsCollection.insertOne(meal);
       res.send(result);
     });
 
     // get all meals from db
-    app.get("/meals", async (req, res) => {
+    app.get("/meals", verifyJWT, async (req, res) => {
       const result = await mealsCollection.find().toArray();
       res.send(result);
     });
 
     // get all meals from db
-    app.get("/meals/:id", async (req, res) => {
+    app.get("/meals/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       const result = await mealsCollection.findOne({ _id: new ObjectId(id) });
       res.send(result);
@@ -102,13 +113,13 @@ async function run() {
     });
 
     // save order in db
-    app.post("/orders",verifyJWT, async (req, res) => {
+    app.post("/orders", verifyJWT, async (req, res) => {
       const order = req.body;
       const result = await orderCollection.insertOne(order);
       res.send(result);
     });
     // get order from db
-    app.get("/my-orders/user/:email",verifyJWT, async (req, res) => {
+    app.get("/my-orders/user/:email", verifyJWT, async (req, res) => {
       const email = req.params.email;
 
       const result = await orderCollection.find({ userEmail: email }).toArray();
@@ -117,7 +128,7 @@ async function run() {
     });
 
     // payment endpoint
-    app.post("/create-checkout-session",verifyJWT, async (req, res) => {
+    app.post("/create-checkout-session", verifyJWT, async (req, res) => {
       const { orderId } = req.body;
 
       const order = await orderCollection.findOne({
@@ -154,7 +165,7 @@ async function run() {
       res.send({ url: session.url });
     });
 
-    app.patch("/payment-success",verifyJWT, async (req, res) => {
+    app.patch("/payment-success", verifyJWT, async (req, res) => {
       const sessionId = req.query.session_id;
 
       const session = await stripe.checkout.sessions.retrieve(sessionId);
@@ -203,7 +214,7 @@ async function run() {
     });
 
     // GET orders for a specific chef
-    app.get("/chef-orders/:chefId",verifyJWT, async (req, res) => {
+    app.get("/chef-orders/:chefId", verifyJWT, async (req, res) => {
       const chefId = req.params.chefId;
 
       const result = await orderCollection
@@ -215,7 +226,7 @@ async function run() {
     });
 
     // PATCH order status
-    app.patch("/orders/:id/status",verifyJWT, async (req, res) => {
+    app.patch("/orders/:id/status", verifyJWT, async (req, res) => {
       const id = req.params.id;
       const { status } = req.body; // "cancelled" | "accepted" | "delivered"
 
@@ -247,7 +258,7 @@ async function run() {
     });
 
     //  Add Review in db
-    app.post("/reviews",verifyJWT, async (req, res) => {
+    app.post("/reviews", verifyJWT, async (req, res) => {
       try {
         const review = req.body;
 
@@ -280,7 +291,7 @@ async function run() {
     });
 
     //  Get reviews by meal
-    app.get("/reviews/meal/:foodId", async (req, res) => {
+    app.get("/reviews/meal/:foodId", verifyJWT, async (req, res) => {
       try {
         const foodId = new ObjectId(req.params.foodId);
 
@@ -293,7 +304,7 @@ async function run() {
     });
 
     //  Get reviews by user (My Reviews page)
-    app.get("/reviews/user/:email",verifyJWT, async (req, res) => {
+    app.get("/reviews/user/:email", verifyJWT, async (req, res) => {
       try {
         const email = req.params.email;
         const result = await reviewsCollection
@@ -307,7 +318,7 @@ async function run() {
     });
 
     //  Delete review
-    app.delete("/reviews/:id",verifyJWT, async (req, res) => {
+    app.delete("/reviews/:id", verifyJWT, async (req, res) => {
       try {
         const id = req.params.id;
         const result = await reviewsCollection.deleteOne({
@@ -320,7 +331,7 @@ async function run() {
     });
 
     //  Update review (rating/comment)
-    app.patch("/reviews/:id",verifyJWT, async (req, res) => {
+    app.patch("/reviews/:id", verifyJWT, async (req, res) => {
       try {
         const id = req.params.id;
         const { rating, comment } = req.body;
@@ -345,8 +356,8 @@ async function run() {
     });
 
     // Add to favorites (no duplicate)
-    app.post("/favorites",verifyJWT, async (req, res) => {
-      req,body.userEmail =req.tokenEmail;
+    app.post("/favorites", verifyJWT, async (req, res) => {
+      // req.body.userEmail =req.tokenEmail;
       try {
         const fav = req.body;
 
@@ -379,7 +390,7 @@ async function run() {
     });
 
     //  Get favorites by user
-    app.get("/favorites/user/:email",verifyJWT, async (req, res) => {
+    app.get("/favorites/user/:email", verifyJWT, async (req, res) => {
       try {
         const email = req.params.email;
         const result = await favoritesCollection
@@ -393,7 +404,7 @@ async function run() {
     });
 
     //  Delete favorite
-    app.delete("/favorites/:id", verifyJWT,async (req, res) => {
+    app.delete("/favorites/:id", verifyJWT, async (req, res) => {
       try {
         const id = req.params.id;
         const result = await favoritesCollection.deleteOne({
@@ -406,14 +417,14 @@ async function run() {
     });
 
     // get meals by chef email
-    app.get("/meals/chef/:email", async (req, res) => {
+    app.get("/meals/chef/:email", verifyJWT, async (req, res) => {
       const email = req.params.email;
       const result = await mealsCollection.find({ userEmail: email }).toArray();
       res.send(result);
     });
 
     // delete meal create by chef
-    app.delete("/meals/:id", verifyJWT,async (req, res) => {
+    app.delete("/meals/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       const result = await mealsCollection.deleteOne({
         _id: new ObjectId(id),
@@ -433,7 +444,7 @@ async function run() {
 
     //   res.send(result);
     // });
-    app.patch("/meals/:id",verifyJWT, async (req, res) => {
+    app.patch("/meals/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       const updated = req.body;
 
@@ -492,7 +503,7 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/users/:email",verifyJWT, async (req, res) => {
+    app.get("/users/:email", verifyJWT, async (req, res) => {
       const email = req.params.email.toLowerCase().trim();
 
       const user = await usersCollection.findOne({ email });
@@ -529,13 +540,23 @@ async function run() {
     //   res.send(result);
     // });
 
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyJWT, async (req, res) => {
       const users = await usersCollection.find().toArray();
       res.send(users);
     });
 
+    // get a user's role
+    app.get("/user/role", verifyJWT, async (req, res) => {
+      try {
+        const user = await usersCollection.findOne({ email: req.tokenEmail });
+        res.send({ role: user?.role || "user" });
+      } catch (error) {
+        res.status(500).send({ message: "Failed to get role" });
+      }
+    });
+
     // make fraud
-    app.patch("/users/fraud/:id", async (req, res) => {
+    app.patch("/users/fraud/:id", verifyJWT, async (req, res) => {
       const { id } = req.params;
 
       const result = await usersCollection.updateOne(
@@ -546,12 +567,12 @@ async function run() {
       res.send(result);
     });
     // get all roll request
-    app.get("/role-requests", async (req, res) => {
+    app.get("/role-requests", verifyJWT, async (req, res) => {
       const requests = await roleRequestsCollection.find().toArray();
       res.send(requests);
     });
     // approve requests
-    app.patch("/role-requests/approve/:id", async (req, res) => {
+    app.patch("/role-requests/approve/:id", verifyJWT, async (req, res) => {
       const { id } = req.params;
 
       const request = await roleRequestsCollection.findOne({
@@ -586,7 +607,7 @@ async function run() {
     });
 
     // reject request
-    app.patch("/role-requests/reject/:id", async (req, res) => {
+    app.patch("/role-requests/reject/:id", verifyJWT, async (req, res) => {
       const { id } = req.params;
 
       await roleRequestsCollection.updateOne(
