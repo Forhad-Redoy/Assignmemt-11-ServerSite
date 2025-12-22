@@ -5,11 +5,11 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const admin = require("firebase-admin");
 const stripe = require("stripe")(process.env.STRIPE_KEY);
 const port = process.env.PORT || 3000;
-// const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString(
-//   'utf-8'
-// )
-// const serviceAccount = JSON.parse(decoded)
-const serviceAccount = require("./a11-firebase-adminsdk.json");
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
+  "utf-8"
+);
+const serviceAccount = JSON.parse(decoded);
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
@@ -337,6 +337,21 @@ async function run() {
       }
     });
 
+    // Latest reviews for Home page
+    app.get("/reviews/home", async (req, res) => {
+      try {
+        const result = await reviewsCollection
+          .find()
+          .sort({ date: -1 })
+          .limit(6)
+          .toArray();
+
+        res.send(result);
+      } catch (err) {
+        res.status(500).send({ message: err.message });
+      }
+    });
+
     //  Delete review
     app.delete("/reviews/:id", verifyJWT, async (req, res) => {
       const id = new ObjectId(req.params.id);
@@ -577,7 +592,7 @@ async function run() {
     //   res.send(result);
     // });
 
-    app.get("/users",  async (req, res) => {
+    app.get("/users", async (req, res) => {
       const users = await usersCollection.find().toArray();
       res.send(users);
     });
