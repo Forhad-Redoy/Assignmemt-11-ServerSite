@@ -65,7 +65,7 @@ async function run() {
     const db = client.db("mealsDB");
     const mealsCollection = db.collection("meals");
     const orderCollection = db.collection("orders");
-    const paymentCollection = db.collection("paymets");
+    const paymentCollection = db.collection("payments");
     const usersCollection = db.collection("users");
     const roleRequestsCollection = db.collection("roles");
     const reviewsCollection = db.collection("reviews");
@@ -85,7 +85,7 @@ async function run() {
     });
 
     // get all meals from db
-    app.get("/meals", verifyJWT, async (req, res) => {
+    app.get("/meals", async (req, res) => {
       const result = await mealsCollection.find().toArray();
       res.send(result);
     });
@@ -262,7 +262,6 @@ async function run() {
       try {
         const review = req.body;
 
-        // basic validation
         if (
           !review?.foodId ||
           !review?.reviewerName ||
@@ -272,8 +271,10 @@ async function run() {
           return res.status(400).send({ message: "Missing required fields" });
         }
 
+        const foodId = new ObjectId(review.foodId);
+
         const data = {
-          foodId: new ObjectId(review.foodId),
+          foodId,
           mealName: review.mealName || "",
           userEmail: review.userEmail || "",
           reviewerName: review.reviewerName,
@@ -283,8 +284,27 @@ async function run() {
           date: new Date(),
         };
 
-        const result = await reviewsCollection.insertOne(data);
-        res.send(result);
+        // ✅ Insert review
+        await reviewsCollection.insertOne(data);
+
+        // ✅ Recalculate average rating
+        const reviews = await reviewsCollection.find({ foodId }).toArray();
+
+        const avgRating =
+          reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
+
+        // ✅ Update meal rating
+        await mealsCollection.updateOne(
+          { _id: foodId },
+          {
+            $set: {
+              rating: Number(avgRating.toFixed(1)),
+              totalReviews: reviews.length,
+            },
+          }
+        );
+
+        res.send({ message: "Review added & rating updated" });
       } catch (err) {
         res.status(500).send({ message: err.message });
       }
@@ -319,15 +339,32 @@ async function run() {
 
     //  Delete review
     app.delete("/reviews/:id", verifyJWT, async (req, res) => {
-      try {
-        const id = req.params.id;
-        const result = await reviewsCollection.deleteOne({
-          _id: new ObjectId(id),
-        });
-        res.send(result);
-      } catch (err) {
-        res.status(500).send({ message: err.message });
-      }
+      const id = new ObjectId(req.params.id);
+
+      const review = await reviewsCollection.findOne({ _id: id });
+      if (!review) return res.send({ message: "Review not found" });
+
+      await reviewsCollection.deleteOne({ _id: id });
+
+      const foodId = review.foodId;
+      const reviews = await reviewsCollection.find({ foodId }).toArray();
+
+      const avgRating =
+        reviews.length === 0
+          ? 0
+          : reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
+
+      await mealsCollection.updateOne(
+        { _id: foodId },
+        {
+          $set: {
+            rating: Number(avgRating.toFixed(1)),
+            totalReviews: reviews.length,
+          },
+        }
+      );
+
+      res.send({ message: "Review deleted & rating updated" });
     });
 
     //  Update review (rating/comment)
@@ -540,7 +577,7 @@ async function run() {
     //   res.send(result);
     // });
 
-    app.get("/users", verifyJWT, async (req, res) => {
+    app.get("/users",  async (req, res) => {
       const users = await usersCollection.find().toArray();
       res.send(users);
     });
@@ -619,10 +656,10 @@ async function run() {
     });
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
   }
@@ -630,7 +667,7 @@ async function run() {
 run().catch(console.dir);
 
 app.get("/", (req, res) => {
-  res.send("Hello from Server..");
+  res.send("Hello from ..");
 });
 
 app.listen(port, () => {
