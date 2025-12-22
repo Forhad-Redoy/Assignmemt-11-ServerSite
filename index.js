@@ -14,16 +14,10 @@ admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-const app = express();
 // middleware
-app.use(
-  cors({
-    origin: [process.env.CLIENT_URL, process.env.CLIENT_URL2],
-    credentials: true,
-    optionSuccessStatus: 200,
-  })
-);
 app.use(express.json());
+app.use(cors());
+app.options("*", cors());
 
 // jwt middlewares
 const verifyJWT = async (req, res, next) => {
@@ -62,6 +56,7 @@ const client = new MongoClient(process.env.MONGODB_URI, {
 });
 async function run() {
   try {
+    await connectDB();
     const db = client.db("mealsDB");
     const mealsCollection = db.collection("meals");
     const orderCollection = db.collection("orders");
@@ -524,7 +519,7 @@ async function run() {
     });
 
     // save or update a user in db
-    app.post("/user", async (req, res) => {
+    app.post("/user",verifyJWT, async (req, res) => {
       const userData = req.body;
       userData.email = userData.email.toLowerCase().trim();
       userData.created_at = new Date().toISOString();
@@ -592,7 +587,7 @@ async function run() {
     //   res.send(result);
     // });
 
-    app.get("/users", async (req, res) => {
+    app.get("/users",verifyJWT, async (req, res) => {
       const users = await usersCollection.find().toArray();
       res.send(users);
     });
@@ -685,6 +680,6 @@ app.get("/", (req, res) => {
   res.send("Hello from ..");
 });
 
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-});
+// app.listen(port, () => {
+//   console.log(`Server is running on port ${port}`);
+// });
