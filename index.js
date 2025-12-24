@@ -1,6 +1,8 @@
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
+
 const express = require("express");
 const cors = require("cors");
+const app = express();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const admin = require("firebase-admin");
 const stripe = require("stripe")(process.env.STRIPE_KEY);
@@ -9,15 +11,19 @@ const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
   "utf-8"
 );
 const serviceAccount = JSON.parse(decoded);
-
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
 // middleware
+app.use(
+  cors({
+    origin: [process.env.CLIENT_URL],
+    credentials: true,
+    optionsSuccessStatus: 200,
+  })
+);
 app.use(express.json());
-app.use(cors());
-app.options("*", cors());
 
 // jwt middlewares
 const verifyJWT = async (req, res, next) => {
@@ -56,7 +62,8 @@ const client = new MongoClient(process.env.MONGODB_URI, {
 });
 async function run() {
   try {
-    await connectDB();
+    await client.connect();
+
     const db = client.db("mealsDB");
     const mealsCollection = db.collection("meals");
     const orderCollection = db.collection("orders");
@@ -519,7 +526,7 @@ async function run() {
     });
 
     // save or update a user in db
-    app.post("/user",verifyJWT, async (req, res) => {
+    app.post("/user", async (req, res) => {
       const userData = req.body;
       userData.email = userData.email.toLowerCase().trim();
       userData.created_at = new Date().toISOString();
@@ -550,8 +557,18 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/users", verifyJWT, async (req, res) => {
+      const users = await usersCollection.find().toArray();
+      res.send(users);
+    });
+
     app.get("/users/:email", verifyJWT, async (req, res) => {
       const email = req.params.email.toLowerCase().trim();
+
+      // Security check
+      if (email !== req.tokenEmail) {
+        return res.status(403).send({ message: "Forbidden Access" });
+      }
 
       const user = await usersCollection.findOne({ email });
 
@@ -561,35 +578,30 @@ async function run() {
 
       res.send(user);
     });
-    // // POST /role-requests
-    // app.post("/role-requests", async (req, res) => {
-    //   const { userName, userEmail, requestType } = req.body;
+    // POST /role-requests
+    app.post("/role-requests", async (req, res) => {
+      const { userName, userEmail, requestType } = req.body;
 
-    //   // optional: prevent duplicate pending requests
-    //   const alreadyPending = await roleRequestsCollection.findOne({
-    //     userEmail,
-    //     requestType,
-    //     requestStatus: "pending",
-    //   });
-    //   if (alreadyPending) {
-    //     return res.status(409).send({ message: "Request already pending" });
-    //   }
+      // optional: prevent duplicate pending requests
+      const alreadyPending = await roleRequestsCollection.findOne({
+        userEmail,
+        requestType,
+        requestStatus: "pending",
+      });
+      if (alreadyPending) {
+        return res.status(409).send({ message: "Request already pending" });
+      }
 
-    //   const doc = {
-    //     userName,
-    //     userEmail,
-    //     requestType, // "chef" or "admin"
-    //     requestStatus: "pending",
-    //     requestTime: new Date().toISOString(),
-    //   };
+      const doc = {
+        userName,
+        userEmail,
+        requestType, // "chef" or "admin"
+        requestStatus: "pending",
+        requestTime: new Date().toISOString(),
+      };
 
-    //   const result = await roleRequestsCollection.insertOne(doc);
-    //   res.send(result);
-    // });
-
-    app.get("/users",verifyJWT, async (req, res) => {
-      const users = await usersCollection.find().toArray();
-      res.send(users);
+      const result = await roleRequestsCollection.insertOne(doc);
+      res.send(result);
     });
 
     // get a user's role
@@ -679,6 +691,7 @@ run().catch(console.dir);
 app.get("/", (req, res) => {
   res.send("Hello from ..");
 });
+module.exports = app;
 
 // app.listen(port, () => {
 //   console.log(`Server is running on port ${port}`);
